@@ -135,10 +135,92 @@ function resize() {
   offscreen.width = W; offscreen.height = H;
 }
 window.addEventListener('resize', resize);
+resize();
+
+// ── Audio Synthesis ───────────────────────────────────────────────────
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) audioCtx = new AC();
+  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+let lastFriction = 0;
+function playGlassFriction(speed) {
+  const now = Date.now();
+  if (now - lastFriction < 55) return;
+  lastFriction = now;
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    const bp = ctx.createBiquadFilter();
+    osc.type = 'sine';
+    const freq = 920 + Math.random() * 380 + Math.min(speed * 25, 550);
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.88, t + 0.05);
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 4.5;
+    const vol = Math.min(0.045, 0.012 + speed * 0.0018);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+    osc.connect(bp); bp.connect(g); g.connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.06);
+  } catch(e) {}
+}
+
+function playShutterSound() {
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(25, t + 0.04);
+    g1.gain.setValueAtTime(0.28, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    osc.connect(g1); g1.connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.05);
+
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.setValueAtTime(2200, t + 0.01); bp.Q.value = 3;
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.18, t + 0.01);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    noise.connect(bp); bp.connect(g2); g2.connect(ctx.destination);
+    noise.start(t + 0.01); noise.stop(t + 0.07);
+  } catch(e) {}
+}
+
+// ── Natural Evaporation ───────────────────────────────────────────────
+let lastFogTime = Date.now();
+function naturalEvaporation() {
+  if (!fogReady) return;
+  const now = Date.now();
+  if (now - lastFogTime > 9000) {
+    maskCtx.save();
+    maskCtx.globalCompositeOperation = 'destination-out';
+    maskCtx.fillStyle = 'rgba(0,0,0,0.0022)';
+    maskCtx.fillRect(0, 0, W, H);
+    maskCtx.restore();
+  }
+}
 
 // ── Render ────────────────────────────────────────────────────────────
 function render() {
   requestAnimationFrame(render);
+  naturalEvaporation();
   if (video.readyState < 2) return;
   camCtx.save(); camCtx.translate(W, 0); camCtx.scale(-1, 1);
   camCtx.drawImage(video, 0, 0, W, H); camCtx.restore();
@@ -160,6 +242,7 @@ let breathCooldown = 0;
 function addFog(volume) {
   if (breathCooldown > 0) { breathCooldown--; return; }
   fogReady = true;
+  lastFogTime = Date.now();
   for (let i = 0; i < 3 + Math.floor(Math.random()*3); i++) {
     const cx = W*0.5 + (Math.random()-0.5)*W*0.6;
     const cy = H*0.5 + (Math.random()-0.5)*H*0.3;
@@ -181,33 +264,53 @@ function addFog(volume) {
 
 // ── Draw ──────────────────────────────────────────────────────────────
 let smoothX = null, smoothY = null;
-const SMOOTH = 0.4;
+const SMOOTH = 0.42;
 let trail = [], lastDrawX = null, lastDrawY = null;
+
+function traceTrail(ctx, pts) {
+  if (pts.length === 2) {
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+  } else {
+    ctx.moveTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+    for (let i = 1; i < pts.length - 1; i++) {
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i+1].x) / 2, (pts[i].y + pts[i+1].y) / 2);
+    }
+  }
+}
 
 function eraseAt(rawX, rawY) {
   if (smoothX === null) { smoothX = rawX; smoothY = rawY; }
+  const prevX = smoothX, prevY = smoothY;
   smoothX += SMOOTH * (rawX - smoothX);
   smoothY += SMOOTH * (rawY - smoothY);
   const x = smoothX, y = smoothY;
   lastDrawX = x; lastDrawY = y;
+  
+  const speed = Math.hypot(x - prevX, y - prevY);
+  playGlassFriction(speed);
+
   trail.push({x, y}); if (trail.length > 6) trail.shift();
   if (trail.length < 2) return;
+
   maskCtx.save();
   maskCtx.globalCompositeOperation = 'destination-out';
-  maskCtx.strokeStyle = 'rgba(0,0,0,1)';
-  maskCtx.lineWidth = 40; maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+  
+  // Outer subtle capillary water ridge
+  maskCtx.strokeStyle = 'rgba(0,0,0,0.32)';
+  maskCtx.lineWidth = 50; maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
   maskCtx.beginPath();
-  if (trail.length === 2) {
-    maskCtx.moveTo(trail[0].x, trail[0].y);
-    maskCtx.lineTo(trail[1].x, trail[1].y);
-  } else {
-    maskCtx.moveTo((trail[0].x+trail[1].x)/2, (trail[0].y+trail[1].y)/2);
-    for (let i = 1; i < trail.length-1; i++) {
-      maskCtx.quadraticCurveTo(trail[i].x, trail[i].y,
-        (trail[i].x+trail[i+1].x)/2, (trail[i].y+trail[i+1].y)/2);
-    }
-  }
-  maskCtx.stroke(); maskCtx.restore();
+  traceTrail(maskCtx, trail);
+  maskCtx.stroke();
+
+  // Crisp inner wipe stroke
+  maskCtx.strokeStyle = 'rgba(0,0,0,1)';
+  maskCtx.lineWidth = 38;
+  maskCtx.beginPath();
+  traceTrail(maskCtx, trail);
+  maskCtx.stroke();
+  
+  maskCtx.restore();
 }
 
 function resetDraw() {
@@ -278,6 +381,7 @@ function startCountdown() {
 }
 
 function doCapture() {
+  playShutterSound();
   flashEl.style.transition = 'none';
   flashEl.style.opacity = '0.9';
   setTimeout(() => { flashEl.style.transition = 'opacity 0.3s'; flashEl.style.opacity = '0'; }, 80);
@@ -286,6 +390,16 @@ function doCapture() {
   const sCtx = snap.getContext('2d');
   sCtx.drawImage(cameraCanvas, 0, 0);
   sCtx.drawImage(blurCanvas, 0, 0);
+
+  // Minimal editorial installation watermark
+  sCtx.save();
+  sCtx.font = '300 12px Georgia, serif';
+  sCtx.fillStyle = 'rgba(255,255,255,0.45)';
+  sCtx.textAlign = 'right';
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  sCtx.fillText(`BREATH MIRROR · ${timeStr}`, W - 22, H - 18);
+  sCtx.restore();
+
   snap.toBlob(blob => {
     const url = URL.createObjectURL(blob);
     const wrap = document.createElement('div');
@@ -321,7 +435,12 @@ hands.onResults(results => {
     const lm = all[0];
     const fx = (1-lm[8].x)*W, fy = lm[8].y*H;
     const tx = (1-lm[4].x)*W, ty = lm[4].y*H;
-    const pinching = Math.hypot(fx-tx, fy-ty) < W*0.055;
+
+    // Scale-invariant pinch: normalized by palm anatomy (knuckle to wrist)
+    const handScale = Math.hypot(lm[5].x - lm[0].x, lm[5].y - lm[0].y) || 0.2;
+    const pinchDist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
+    const pinching = (pinchDist / handScale) < 0.42;
+
     cursor.style.left = fx+'px'; cursor.style.top = fy+'px'; cursor.style.opacity = '1';
     if (pinching && fogReady) {
       holdStart = null; frameCtx.clearRect(0,0,W,H);
@@ -359,9 +478,14 @@ hands.onResults(results => {
 // ── Camera ────────────────────────────────────────────────────────────
 async function startCamera() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' }, audio: false
-    });
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' }, audio: false
+      });
+    } catch(err) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
     video.srcObject = stream; await video.play();
     const mpCam = new Camera(video, {
       onFrame: async () => { await hands.send({ image: video }); },
@@ -376,7 +500,8 @@ async function startCamera() {
 async function startMic() {
   try {
     const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const ac = new AudioContext();
+    const ac = getAudioCtx();
+    if (!ac) return;
     const src = ac.createMediaStreamSource(ms);
     const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
     src.connect(hp);
@@ -397,12 +522,29 @@ async function startMic() {
   } catch(e) {}
 }
 
-// ── Buttons ───────────────────────────────────────────────────────────
+// ── Buttons & Keyboard ────────────────────────────────────────────────
 document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('clearBtn').addEventListener('click', () => {
   maskCtx.clearRect(0,0,W,H);
   undoStack = []; fogReady = false; resetDraw();
   statusEl.textContent = 'blow on the screen';
+});
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'KeyF') {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+    else document.exitFullscreen().catch(()=>{});
+  } else if (e.code === 'Space' && !e.repeat) {
+    getAudioCtx();
+    addFog(0.5);
+    breathRing.classList.add('active');
+    setTimeout(() => breathRing.classList.remove('active'), 300);
+  }
+});
+
+// Resume audio on first interaction
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => {
+  window.addEventListener(ev, () => { getAudioCtx(); }, { once: true });
 });
 
 startCamera(); startMic();
