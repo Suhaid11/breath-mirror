@@ -3,369 +3,637 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <title>Breath Mirror</title>
 <style>
+  :root {
+    --bg: #0b0f14;
+    --accent: #38bdf8;
+    --accent-hover: #7dd3fc;
+    --accent-glow: rgba(56, 189, 248, 0.28);
+    --panel-bg: rgba(15, 23, 36, 0.48);
+    --panel-border: rgba(255, 255, 255, 0.14);
+    --text-dim: rgba(255, 255, 255, 0.65);
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: none; }
-  #container { position: relative; width: 100vw; height: 100vh; }
-  video { position: absolute; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0; pointer-events: none; }
-  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  #cameraCanvas { z-index: 1; }
-  #maskCanvas   { z-index: 0; display: none; }
-  #blurCanvas   { z-index: 2; }
-  #frameCanvas  { z-index: 3; pointer-events: none; }
 
-  #cursor {
-    position: fixed; width: 20px; height: 20px; border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.7); background: rgba(255,255,255,0.08);
-    pointer-events: none; z-index: 100; transform: translate(-50%, -50%);
-    opacity: 0; transition: opacity 0.15s;
+  html, body { height: 100%; background: var(--bg); overflow: hidden; }
+  body { cursor: none; font: 16px/1.7 'Space Grotesk', -apple-system, system-ui, sans-serif; }
+
+  /* layer 1 = camera, layer 3 = frost. layer 2 (the fog) lives offscreen. layer 4 = frame brackets */
+  video#video { position: fixed; inset: 0; width: 100%; height: 100%;
+                object-fit: cover; opacity: 0; pointer-events: none; z-index: 0; }
+  canvas.layer { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #cam   { z-index: 1; }
+  #frost { z-index: 2; }
+  #frame { z-index: 3; pointer-events: none; }
+
+  /* instruction hint, bottom centre */
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: 62px; z-index: 25;
+    text-align: center;
+    font: 14px/1.6 'Space Grotesk', -apple-system, system-ui, sans-serif;
+    color: var(--text-dim);
+    letter-spacing: .02em;
+    pointer-events: none;
+    transition: opacity 1.2s ease, bottom .25s ease;
+    text-shadow: 0 1px 10px rgba(0,0,0,.7);
   }
-  #cursor.drawing { background: rgba(255,255,255,0.9); border-color: #fff; }
+  #hint b { color: #fff; font-weight: 600; }
+  #hint.gone { opacity: 0; }
+  #hint.shifted { bottom: 94px; }
 
-  #breathRing {
-    position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
-    width: 44px; height: 44px; border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.12); z-index: 50; pointer-events: none;
-    transition: border-color 0.1s, box-shadow 0.1s;
-  }
-  #breathRing.active { border-color: rgba(210,225,235,0.9); box-shadow: 0 0 20px rgba(210,225,235,0.35); }
-
+  /* transient status banner, top centre */
   #status {
-    position: fixed; bottom: 164px; left: 50%; transform: translateX(-50%);
-    color: rgba(255,255,255,0.4); font-size: 11px; letter-spacing: 0.18em;
-    text-transform: uppercase; font-family: Georgia, serif;
-    pointer-events: none; white-space: nowrap; z-index: 50;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 26;
+    padding: 16px; text-align: center;
+    font: 13.5px/1.6 'Space Grotesk', -apple-system, system-ui, sans-serif;
+    color: rgba(255,255,255,.8);
+    pointer-events: none;
+    transition: opacity .8s ease;
+    text-shadow: 0 1px 10px rgba(0,0,0,.7);
   }
+  #status.gone { opacity: 0; }
 
+  /* live telemetry readouts, toggled with D */
+  #readouts {
+    position: fixed; top: 16px; left: 16px; z-index: 26;
+    display: none;
+    font: 11.5px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: rgba(255,255,255,.76);
+    white-space: pre; letter-spacing: .03em;
+    padding: 10px 14px; border-radius: 8px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    pointer-events: none;
+  }
+  #readouts.on { display: block; }
+
+  /* top-right glass action bar */
+  #topBar {
+    position: fixed; top: 16px; right: 16px; z-index: 30;
+    display: none; align-items: center; gap: 8px;
+  }
+  #topBar.on { display: flex; }
+
+  .icon-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; padding: 0;
+    border: 1px solid var(--panel-border); border-radius: 50%;
+    background: var(--panel-bg);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    color: rgba(255,255,255,.8); cursor: pointer; opacity: .65;
+    transition: opacity .2s ease, transform .1s ease, border-color .2s ease, color .2s ease;
+  }
+  .icon-btn:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+  .icon-btn:active { transform: scale(.93); }
+  .icon-btn svg { display: block; }
+
+  /* capture flash effect */
+  #flash { position: fixed; inset: 0; z-index: 60; background: #fff; opacity: 0; pointer-events: none; }
+  #flash.pop { animation: pop .32s ease-out; }
+  @keyframes pop { 0% { opacity: .9; } 100% { opacity: 0; } }
+
+  /* 3-2-1 photo countdown */
   #countdown {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    font-size: 140px; font-family: Georgia, serif;
-    color: rgba(255,255,255,0.9); text-shadow: 0 0 40px rgba(255,255,255,0.4);
+    font-size: 130px; font-weight: 300; line-height: 1;
+    color: #fff; text-shadow: 0 0 50px var(--accent-glow);
     pointer-events: none; z-index: 60; opacity: 0; transition: opacity 0.2s;
   }
   #countdown.show { opacity: 1; }
 
-  #btnGroup { position: fixed; top: 20px; right: 20px; z-index: 50; display: flex; gap: 8px; }
-  #btnGroup button {
-    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4);
-    color: rgba(255,255,255,0.9); padding: 8px 16px; font-size: 11px;
-    letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
-    border-radius: 4px; font-family: Georgia, serif; transition: all 0.15s;
-    backdrop-filter: blur(6px);
+  /* brush size pill, centred along bottom */
+  #tool {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30;
+    display: none; align-items: center; gap: 11px;
+    padding: 7px 15px 7px 12px; border-radius: 999px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-border);
+    opacity: .6; transition: opacity .25s ease, bottom .25s ease;
   }
-  #btnGroup button:hover { background: rgba(255,255,255,0.2); }
-  #btnGroup button:active { transform: scale(0.96); }
+  #tool.on { display: flex; }
+  #tool.shifted { bottom: 84px; }
+  #tool:hover { opacity: 1; border-color: rgba(255,255,255,.28); }
+  #tool svg { display: block; opacity: .92; flex: none; fill: var(--accent); }
+  #tool input {
+    -webkit-appearance: none; appearance: none;
+    width: 116px; height: 3px; border-radius: 2px;
+    background: rgba(255,255,255,.32);
+    outline: none; cursor: pointer; accent-color: var(--accent);
+  }
+  #tool input::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+    box-shadow: 0 1px 5px rgba(0,0,0,.5);
+  }
+  #tool input::-moz-range-thumb {
+    width: 13px; height: 13px; border: 0; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
 
+  /* photo strip gallery */
   #photoStrip {
-    position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
-    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
-    z-index: 55; overflow-x: auto;
-    background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+    position: fixed; bottom: 0; left: 0; right: 0; height: 74px;
+    display: none; align-items: center; gap: 10px; padding: 6px 18px;
+    z-index: 35; overflow-x: auto;
+    background: linear-gradient(to top, rgba(11,15,20,0.85), transparent);
   }
+  #photoStrip.has-photos { display: flex; }
   #photoStrip::-webkit-scrollbar { display: none; }
   .photo-thumb {
-    position: relative; flex-shrink: 0; height: 62px; border-radius: 4px;
+    position: relative; flex-shrink: 0; height: 58px; border-radius: 4px;
     overflow: hidden; cursor: pointer;
-    border: 1.5px solid rgba(255,255,255,0.25);
+    border: 1.5px solid rgba(255,255,255,0.22);
+    background: #000;
     transition: border-color 0.15s, transform 0.15s;
     animation: thumbIn 0.3s ease;
   }
-  .photo-thumb:hover { border-color: rgba(255,255,255,0.8); transform: scale(1.05); }
+  .photo-thumb:hover { border-color: var(--accent); transform: scale(1.04); }
   .photo-thumb img { height: 100%; display: block; }
   .save-btn {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.55); color: white; font-size: 10px;
-    letter-spacing: 0.1em; font-family: Georgia, serif; text-transform: uppercase;
+    background: rgba(11,15,20,0.72); color: var(--accent); font-size: 10px;
+    font-weight: 600; letter-spacing: 0.1em;
     opacity: 0; transition: opacity 0.15s;
   }
   .photo-thumb:hover .save-btn { opacity: 1; }
-  @keyframes thumbIn { from { opacity:0; transform:scale(0.8) translateY(10px); } to { opacity:1; transform:scale(1); } }
+  @keyframes thumbIn { from { opacity: 0; transform: scale(0.85) translateY(8px); } to { opacity: 1; transform: scale(1); } }
 
-  #flash { position: fixed; inset: 0; z-index: 200; background: white; opacity: 0; pointer-events: none; }
+  /* start screen: masculine modern aesthetic */
+  #start {
+    position: fixed; inset: 0; z-index: 100; cursor: default;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: var(--bg);
+    color: var(--text-dim);
+    --edge: clamp(24px, 6vw, 64px);
+    --floor: clamp(74px, 12vh, 132px);
+    padding: 0 var(--edge) var(--floor);
+  }
+  #start.off { display: none; }
+  #start h1 {
+    font-size: clamp(40px, 8.5vw, 64px); line-height: 1;
+    color: #fff; font-weight: 700; letter-spacing: -.03em;
+  }
+  #start .sig {
+    margin-top: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; font-weight: 500;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  #start p { margin-top: 18px; max-width: 440px; font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,.7); }
+  #startBtn {
+    margin-top: 24px; align-self: flex-start;
+    font: 600 14px 'Space Grotesk', -apple-system, system-ui, sans-serif;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: #0b0f14; background: var(--accent);
+    border: 0; border-radius: 4px; padding: 13px 32px;
+    cursor: pointer;
+    box-shadow: 0 0 20px var(--accent-glow);
+    transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+  }
+  #startBtn:hover { background: var(--accent-hover); box-shadow: 0 0 28px rgba(56,189,248,.45); }
+  #startBtn:active { transform: translateY(1px); }
+  #msg { margin-top: 14px; max-width: 440px; font-size: 13.5px; line-height: 1.6; color: var(--accent); }
+  #msg.info { color: rgba(255,255,255,.5); }
+  #msg.err  { color: #f87171; }
+
+  /* keyboard guide */
+  #start small {
+    position: absolute; right: var(--edge); bottom: var(--floor);
+    text-align: right; color: rgba(255,255,255,.54);
+    font-size: 12.5px; line-height: 2.3; letter-spacing: .02em;
+    animation: keysBlink 2.6s ease-in-out infinite;
+  }
+  #start small kbd {
+    display: inline-block; min-width: 22px; margin-right: 7px; padding: 2px 7px;
+    font: 600 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #0b0f14; background: var(--accent); border-radius: 3px;
+    vertical-align: 1px;
+  }
+  @keyframes keysBlink { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    #start small { animation: none; opacity: .9; }
+  }
+  @media (max-width: 600px) {
+    #start small { position: static; text-align: left; margin-top: 26px; }
+  }
 </style>
 </head>
 <body>
-<div id="container">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="cameraCanvas"></canvas>
-  <canvas id="maskCanvas"></canvas>
-  <canvas id="blurCanvas"></canvas>
-  <canvas id="frameCanvas"></canvas>
-</div>
-<div id="cursor"></div>
-<div id="status">initializing…</div>
-<div id="breathRing"></div>
-<div id="countdown"></div>
-<div id="btnGroup">
-  <button id="undoBtn">↩ undo</button>
-  <button id="clearBtn">✕ clear</button>
-</div>
-<div id="photoStrip"></div>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="cam" class="layer"></canvas>
+<canvas id="frost" class="layer"></canvas>
+<canvas id="frame" class="layer"></canvas>
+
+<div id="status" class="gone"></div>
+<div id="hint" class="gone">Pinch <b>thumb & index</b> to draw &nbsp;·&nbsp; <b>fist</b> to wipe &nbsp;·&nbsp; hold <b>SPACE</b> or <b>breathe</b> to fog</div>
+<div id="readouts"></div>
 <div id="flash"></div>
+<div id="countdown"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<!-- Top-Right Actions -->
+<div id="topBar">
+  <button id="undoBtn" class="icon-btn" title="Undo stroke (Z)" aria-label="undo">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7v6h6"></path>
+      <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+    </svg>
+  </button>
+  <button id="clearBtn" class="icon-btn" title="Reset fog (C)" aria-label="clear mirror">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 6L6 18M6 6l12 12"></path>
+    </svg>
+  </button>
+  <button id="shotBtn" class="icon-btn" title="Save photo (S)" aria-label="save photo">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+      <circle cx="12" cy="13" r="4"></circle>
+    </svg>
+  </button>
+  <button id="fsBtn" class="icon-btn" title="Toggle fullscreen (F)" aria-label="fullscreen">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+    </svg>
+  </button>
+</div>
+
+<!-- Bottom Brush Tool -->
+<div id="tool">
+  <svg width="16" height="16" viewBox="-12 -12 24 24" aria-hidden="true">
+    <path d="M0-11 Q1.7-1.7 11 0 Q1.7 1.7 0 11 Q-1.7 1.7 -11 0 Q-1.7-1.7 0-11 Z"/>
+  </svg>
+  <input id="brush" type="range" min="7" max="38" step="1" value="15" aria-label="brush size">
+</div>
+
+<!-- Photo Film Strip -->
+<div id="photoStrip"></div>
+
+<!-- Start Overlay -->
+<div id="start">
+  <h1>Breath Mirror</h1>
+  <div class="sig">BY SUHAID</div>
+  <p>An interactive digital mirror. Exhale toward the screen to condense steam; pinch and wipe to etch clean glass. All processing runs privately in your browser.</p>
+  <button id="startBtn">Start Mirror</button>
+  <p id="msg"></p>
+  <small>
+    <kbd>space</kbd>fog it up<br>
+    <kbd>pinch</kbd>draw on glass<br>
+    <kbd>fist</kbd>wipe clean<br>
+    <kbd>L-frame</kbd>photo countdown<br>
+    <kbd>Z</kbd>undo stroke<br>
+    <kbd>S</kbd>save photo<br>
+    <kbd>C</kbd>reset mirror<br>
+    <kbd>F</kbd>fullscreen<br>
+    <kbd>D</kbd>readouts<br>
+    <kbd>esc</kbd>exit to start
+  </small>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4.1646425229/face_detection.js" crossorigin="anonymous"></script>
 <script>
-const video        = document.getElementById('video');
-const cameraCanvas = document.getElementById('cameraCanvas');
-const maskCanvas   = document.getElementById('maskCanvas');
-const blurCanvas   = document.getElementById('blurCanvas');
-const frameCanvas  = document.getElementById('frameCanvas');
-const camCtx       = cameraCanvas.getContext('2d');
-const maskCtx      = maskCanvas.getContext('2d');
-const blurCtx      = blurCanvas.getContext('2d');
-const frameCtx     = frameCanvas.getContext('2d');
-const cursor       = document.getElementById('cursor');
-const statusEl     = document.getElementById('status');
-const breathRing   = document.getElementById('breathRing');
-const flashEl      = document.getElementById('flash');
-const countdownEl  = document.getElementById('countdown');
-const photoStrip   = document.getElementById('photoStrip');
+'use strict';
 
-const offscreen = document.createElement('canvas');
-const offCtx    = offscreen.getContext('2d');
+/* ──────────────────────────────────────────────────────────────────────
+   breath-mirror.html — unified single-file installation engine.
 
-let W = 0, H = 0, fogReady = false;
+   Stacked rendering pipeline:
+     1. camera : mirrored webcam frame
+     2. fog    : hidden offscreen canvas holding steam density
+     3. frost  : camera frame blurred + brightened + cool mist tinted,
+                 masked by the fog with 'destination-in'
+     4. frame  : interactive two-hand L-frame viewfinder brackets
+   Erasing subtracts from fog with 'destination-out'.
+   ────────────────────────────────────────────────────────────────────── */
 
-// ── Resize ────────────────────────────────────────────────────────────
-function resize() {
-  W = window.innerWidth; H = window.innerHeight;
-  [cameraCanvas, maskCanvas, blurCanvas, frameCanvas].forEach(c => { c.width = W; c.height = H; });
-  offscreen.width = W; offscreen.height = H;
-}
-window.addEventListener('resize', resize);
-resize();
+// ── tuned values ──────────────────────────────────────────────────────
+const FOG_ON_LOAD    = 0.55;   // initial fog opacity
+const FOG_BLUR       = 18;     // css px blur
+const FOG_BRIGHTNESS = 1.18;
+const FOG_TINT       = '216,228,238'; // cool mist condensation
+const FOG_TINT_MIX   = 0.58;
 
-// ── Audio Synthesis ───────────────────────────────────────────────────
-let audioCtx = null;
-function getAudioCtx() {
-  if (!audioCtx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) audioCtx = new AC();
+const BREATH_BLOBS   = 12;     // puffs per breath trigger
+const BLOB_OPACITY   = 0.36;
+const BLOB_REACH     = 0.43;
+const BLOB_BLUR      = 0.60;
+const BLOB_SPREAD_X  = 1.45;
+const BLOB_FALL      = 0.055;
+const FOG_EASE       = 0.4;
+const FACE_EVERY     = 5;
+
+const BREATH_START   = 0.0025;
+const BREATH_FULL    = 0.003;
+const FLOOR_DOWN     = 0.05;
+const FLOOR_UP       = 0.0008;
+const KEY_GUARD_MS   = 300;
+
+const PINCH_DOWN     = 0.22;
+const PINCH_UP       = 0.38;
+const EASE_RAW       = 0.45;
+const EASE_BRUSH     = 0.22;
+const EASE_STAR      = 0.55;
+const TREMOR         = 0.0006;
+const LIFT_MS        = 250;
+const LIFT_FRAMES    = 2;
+
+const WIPE_SPREAD    = 1.6;
+const WIPE_STEP      = 0.5;
+const WIPE_STAMPS    = 40;
+const WIPE_JUMP      = 0.30;
+const WIPE_ALPHA     = 0.34;
+
+const HANDS_BASE     = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/';
+const FACE_BASE      = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4.1646425229/';
+
+// ── DOM Elements ──────────────────────────────────────────────────────
+const video       = document.getElementById('video');
+const cam         = document.getElementById('cam');
+const frost       = document.getElementById('frost');
+const frameCanvas = document.getElementById('frame');
+const camCtx      = cam.getContext('2d');
+const frostCtx    = frost.getContext('2d');
+const frameCtx    = frameCanvas.getContext('2d');
+
+const topBar      = document.getElementById('topBar');
+const undoBtn     = document.getElementById('undoBtn');
+const clearBtn    = document.getElementById('clearBtn');
+const shotBtn     = document.getElementById('shotBtn');
+const fsBtn       = document.getElementById('fsBtn');
+const brushInput  = document.getElementById('brush');
+const toolEl      = document.getElementById('tool');
+const photoStrip  = document.getElementById('photoStrip');
+const hintEl      = document.getElementById('hint');
+const statusEl    = document.getElementById('status');
+const readoutsEl  = document.getElementById('readouts');
+const flashEl     = document.getElementById('flash');
+const countdownEl = document.getElementById('countdown');
+const startScr    = document.getElementById('start');
+const startBtn    = document.getElementById('startBtn');
+const msgEl       = document.getElementById('msg');
+
+// Layer 2: offscreen fog buffer
+const fog    = document.createElement('canvas');
+const fogCtx = fog.getContext('2d');
+
+// ── Dimensions & Scaling ──────────────────────────────────────────────
+let W = 0, H = 0, DPR = 1;
+
+function layout(preserveFog) {
+  let keep = null;
+  if (preserveFog && fog.width > 0 && fog.height > 0) {
+    keep = document.createElement('canvas');
+    keep.width = fog.width; keep.height = fog.height;
+    keep.getContext('2d').drawImage(fog, 0, 0);
   }
-  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-  return audioCtx;
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(W * DPR), h = Math.round(H * DPR);
+  for (const c of [cam, frost, frameCanvas, fog]) { c.width = w; c.height = h; }
+  if (keep) fogCtx.drawImage(keep, 0, 0, w, h);
+  if (mouthX === null) { fogX = W * 0.5; fogY = H * 0.45; }
 }
 
-let lastFriction = 0;
-function playGlassFriction(speed) {
-  const now = Date.now();
-  if (now - lastFriction < 55) return;
-  lastFriction = now;
-  try {
-    const ctx = getAudioCtx();
-    if (!ctx) return;
-    const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    const bp = ctx.createBiquadFilter();
-    osc.type = 'sine';
-    const freq = 920 + Math.random() * 380 + Math.min(speed * 25, 550);
-    osc.frequency.setValueAtTime(freq, t);
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.88, t + 0.05);
-    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 4.5;
-    const vol = Math.min(0.045, 0.012 + speed * 0.0018);
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
-    osc.connect(bp); bp.connect(g); g.connect(ctx.destination);
-    osc.start(t); osc.stop(t + 0.06);
-  } catch(e) {}
+const sx = u => (1 - u) * W;
+const sy = v => v * H;
+function dist(a, b) { return Math.hypot((a.x - b.x) * W, (a.y - b.y) * H); }
+
+function pinchPoint(lm) {
+  return { x: sx((lm[4].x + lm[8].x) * 0.5), y: sy((lm[4].y + lm[8].y) * 0.5) };
+}
+function palmCentre(lm) {
+  const ids = [0, 5, 9, 13, 17];
+  let x = 0, y = 0;
+  for (const i of ids) { x += lm[i].x; y += lm[i].y; }
+  return { x: sx(x / ids.length), y: sy(y / ids.length) };
 }
 
-function playShutterSound() {
-  try {
-    const ctx = getAudioCtx();
-    if (!ctx) return;
-    const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const g1 = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(150, t);
-    osc.frequency.exponentialRampToValueAtTime(25, t + 0.04);
-    g1.gain.setValueAtTime(0.28, t);
-    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-    osc.connect(g1); g1.connect(ctx.destination);
-    osc.start(t); osc.stop(t + 0.05);
+// ── State ─────────────────────────────────────────────────────────────
+let running = false, frame = 0, busy = false, generation = 0;
+let readoutsOn = false, fps = 0, fpsFrames = 0, fpsAt = 0, readoutsAt = 0, hintTimer = null;
+let hands = null, faceDetection = null;
+let videoStream = null, micStream = null;
+let audioCtx = null, micSource = null, analyser = null, timeData = null;
 
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    const noise = ctx.createBufferSource();
-    noise.buffer = buf;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.setValueAtTime(2200, t + 0.01); bp.Q.value = 3;
-    const g2 = ctx.createGain();
-    g2.gain.setValueAtTime(0.18, t + 0.01);
-    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    noise.connect(bp); bp.connect(g2); g2.connect(ctx.destination);
-    noise.start(t + 0.01); noise.stop(t + 0.07);
-  } catch(e) {}
-}
+let level = 0, noiseFloor = null;
+let spaceHeld = false, lastKeyAt = -Infinity;
+let puffLeft = 0, puffStrength = 0;
 
-// ── Natural Evaporation ───────────────────────────────────────────────
-let lastFogTime = Date.now();
-function naturalEvaporation() {
-  if (!fogReady) return;
-  const now = Date.now();
-  if (now - lastFogTime > 9000) {
-    maskCtx.save();
-    maskCtx.globalCompositeOperation = 'destination-out';
-    maskCtx.fillStyle = 'rgba(0,0,0,0.0022)';
-    maskCtx.fillRect(0, 0, W, H);
-    maskCtx.restore();
-  }
-}
+let mouthX = null, mouthY = null;
+let fogX = 0, fogY = 0;
 
-// ── Render ────────────────────────────────────────────────────────────
-function render() {
-  requestAnimationFrame(render);
-  naturalEvaporation();
-  if (video.readyState < 2) return;
-  camCtx.save(); camCtx.translate(W, 0); camCtx.scale(-1, 1);
-  camCtx.drawImage(video, 0, 0, W, H); camCtx.restore();
-  offCtx.save();
-  offCtx.filter = 'blur(14px) brightness(1.05)';
-  offCtx.translate(W, 0); offCtx.scale(-1, 1);
-  offCtx.drawImage(video, 0, 0, W, H); offCtx.restore();
-  offCtx.fillStyle = 'rgba(205,218,228,0.35)';
-  offCtx.fillRect(0, 0, W, H);
-  blurCtx.clearRect(0, 0, W, H);
-  blurCtx.drawImage(offscreen, 0, 0);
-  blurCtx.globalCompositeOperation = 'destination-in';
-  blurCtx.drawImage(maskCanvas, 0, 0);
-  blurCtx.globalCompositeOperation = 'source-over';
-}
+let handSeen = false, pinch = false, fistFrames = 0;
+let releasedFrames = 0, lastActiveAt = -Infinity;
+let penDown = false, strokeFresh = false, hasRaw = false;
+let rawX = 0, rawY = 0;
+let easeX = null, easeY = null;
+let brushX = null, brushY = null;
+let trail = [];
+let starOn = false, starFresh = false, starX = null, starY = null;
+let wipeAnchor = null;
+let brushRadius = 15;
 
-// ── Fog ───────────────────────────────────────────────────────────────
-let breathCooldown = 0;
-function addFog(volume) {
-  if (breathCooldown > 0) { breathCooldown--; return; }
-  fogReady = true;
-  lastFogTime = Date.now();
-  for (let i = 0; i < 3 + Math.floor(Math.random()*3); i++) {
-    const cx = W*0.5 + (Math.random()-0.5)*W*0.6;
-    const cy = H*0.5 + (Math.random()-0.5)*H*0.3;
-    const r  = 100 + Math.random()*200 + volume*600;
-    const a  = Math.min(1, 0.4 + volume*4);
-    const g  = maskCtx.createRadialGradient(cx,cy,0,cx,cy,r);
-    g.addColorStop(0, `rgba(255,255,255,${a})`);
-    g.addColorStop(0.5, `rgba(255,255,255,${a*0.65})`);
-    g.addColorStop(1, `rgba(255,255,255,0)`);
-    maskCtx.save();
-    maskCtx.globalCompositeOperation = 'source-over';
-    maskCtx.fillStyle = g;
-    maskCtx.beginPath(); maskCtx.arc(cx,cy,r,0,Math.PI*2); maskCtx.fill();
-    maskCtx.restore();
-  }
-  breathCooldown = 4;
-  if (!countingDown) statusEl.textContent = 'pinch to draw';
-}
-
-// ── Draw ──────────────────────────────────────────────────────────────
-let smoothX = null, smoothY = null;
-const SMOOTH = 0.42;
-let trail = [], lastDrawX = null, lastDrawY = null;
-
-function traceTrail(ctx, pts) {
-  if (pts.length === 2) {
-    ctx.moveTo(pts[0].x, pts[0].y);
-    ctx.lineTo(pts[1].x, pts[1].y);
-  } else {
-    ctx.moveTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
-    for (let i = 1; i < pts.length - 1; i++) {
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i+1].x) / 2, (pts[i].y + pts[i+1].y) / 2);
-    }
-  }
-}
-
-function eraseAt(rawX, rawY) {
-  if (smoothX === null) { smoothX = rawX; smoothY = rawY; }
-  const prevX = smoothX, prevY = smoothY;
-  smoothX += SMOOTH * (rawX - smoothX);
-  smoothY += SMOOTH * (rawY - smoothY);
-  const x = smoothX, y = smoothY;
-  lastDrawX = x; lastDrawY = y;
-  
-  const speed = Math.hypot(x - prevX, y - prevY);
-  playGlassFriction(speed);
-
-  trail.push({x, y}); if (trail.length > 6) trail.shift();
-  if (trail.length < 2) return;
-
-  maskCtx.save();
-  maskCtx.globalCompositeOperation = 'destination-out';
-  
-  // Outer subtle capillary water ridge
-  maskCtx.strokeStyle = 'rgba(0,0,0,0.32)';
-  maskCtx.lineWidth = 50; maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
-  maskCtx.beginPath();
-  traceTrail(maskCtx, trail);
-  maskCtx.stroke();
-
-  // Crisp inner wipe stroke
-  maskCtx.strokeStyle = 'rgba(0,0,0,1)';
-  maskCtx.lineWidth = 38;
-  maskCtx.beginPath();
-  traceTrail(maskCtx, trail);
-  maskCtx.stroke();
-  
-  maskCtx.restore();
-}
-
-function resetDraw() {
-  smoothX = null; smoothY = null;
-  trail = []; lastDrawX = null; lastDrawY = null;
-}
-
-// ── Undo ──────────────────────────────────────────────────────────────
-let undoStack = [], isDrawingStroke = false;
-function saveSnapshot() {
-  undoStack.push(maskCtx.getImageData(0, 0, W, H));
-  if (undoStack.length > 20) undoStack.shift();
-}
-function undo() {
-  if (!undoStack.length) return;
-  maskCtx.putImageData(undoStack.pop(), 0, 0);
-}
-
-// ── Capture ───────────────────────────────────────────────────────────
-const HOLD_MS = 1500;
+// Undo & Evaporation & Capture states
+let undoStack = [];
+let lastInteractionAt = performance.now();
 let holdStart = null, countingDown = false, countTimer = null;
 
+// ── Fog Buffer Operations ─────────────────────────────────────────────
+function fillFog() {
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = 'source-over';
+  fogCtx.filter = 'none';
+  fogCtx.clearRect(0, 0, fog.width, fog.height);
+  fogCtx.fillStyle = 'rgba(255,255,255,' + FOG_ON_LOAD + ')';
+  fogCtx.fillRect(0, 0, fog.width, fog.height);
+  fogCtx.restore();
+}
+
+function saveFogSnapshot() {
+  const snap = document.createElement('canvas');
+  snap.width = fog.width; snap.height = fog.height;
+  snap.getContext('2d').drawImage(fog, 0, 0);
+  undoStack.push(snap);
+  if (undoStack.length > 20) undoStack.shift();
+}
+
+function undo() {
+  if (!undoStack.length) {
+    showStatus('Nothing to undo');
+    return;
+  }
+  const snap = undoStack.pop();
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = 'copy';
+  fogCtx.drawImage(snap, 0, 0);
+  fogCtx.restore();
+  showStatus('Stroke undone');
+}
+
+function addFogBlob(strength) {
+  lastInteractionAt = performance.now();
+  const reach = BLOB_REACH * Math.min(W, H);
+  const r = reach * (0.8 + 0.2 * strength);
+  const spreadY = 0.30 * r;
+  const spreadX = BLOB_SPREAD_X * spreadY;
+  const cx = fogX + (Math.random() * 2 - 1) * spreadX;
+  const cy = fogY + BLOB_FALL * H + (Math.random() * 2 - 1) * spreadY;
+  const X = cx * DPR, Y = cy * DPR, R = r * DPR;
+
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = 'source-over';
+  fogCtx.filter = 'blur(' + (BLOB_BLUR * R).toFixed(2) + 'px)';
+  const g = fogCtx.createRadialGradient(X, Y, 0, X, Y, R);
+  g.addColorStop(0, 'rgba(255,255,255,' + BLOB_OPACITY + ')');
+  g.addColorStop(0.45, 'rgba(255,255,255,' + (BLOB_OPACITY * 0.7) + ')');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  fogCtx.fillStyle = g;
+  fogCtx.beginPath();
+  fogCtx.arc(X, Y, R, 0, Math.PI * 2);
+  fogCtx.fill();
+  fogCtx.restore();
+}
+
+function stampWipe(x, y, r) {
+  lastInteractionAt = performance.now();
+  const X = x * DPR, Y = y * DPR, R = Math.max(4, r) * DPR;
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = 'destination-out';
+  fogCtx.filter = 'none';
+  const g = fogCtx.createRadialGradient(X, Y, 0, X, Y, R);
+  g.addColorStop(0, 'rgba(0,0,0,' + WIPE_ALPHA + ')');
+  g.addColorStop(0.55, 'rgba(0,0,0,' + (WIPE_ALPHA * 0.66) + ')');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  fogCtx.fillStyle = g;
+  fogCtx.beginPath();
+  fogCtx.arc(X, Y, R, 0, Math.PI * 2);
+  fogCtx.fill();
+  fogCtx.restore();
+}
+
+function wipeTo(x, y, radius) {
+  if (!wipeAnchor) { stampWipe(x, y, radius); wipeAnchor = { x: x, y: y }; return; }
+  const dx = x - wipeAnchor.x, dy = y - wipeAnchor.y;
+  const d = Math.hypot(dx, dy);
+  if (d > WIPE_JUMP * Math.hypot(W, H)) {
+    stampWipe(x, y, radius); wipeAnchor = { x: x, y: y }; return;
+  }
+  const step = radius * WIPE_STEP;
+  if (d < step) return;
+  let n = Math.floor(d / step);
+  const capped = n > WIPE_STAMPS;
+  if (capped) n = WIPE_STAMPS;
+  const ux = dx / d, uy = dy / d;
+  let ax = wipeAnchor.x, ay = wipeAnchor.y;
+  for (let i = 1; i <= n; i++) {
+    ax = wipeAnchor.x + ux * step * i;
+    ay = wipeAnchor.y + uy * step * i;
+    stampWipe(ax, ay, radius);
+  }
+  wipeAnchor = capped ? { x: x, y: y } : { x: ax, y: ay };
+}
+
+// Subtle thermodynamic evaporation if idle for >12s
+function naturalEvaporation() {
+  const now = performance.now();
+  if (now - lastInteractionAt > 12000) {
+    fogCtx.save();
+    fogCtx.globalCompositeOperation = 'destination-out';
+    fogCtx.fillStyle = 'rgba(0,0,0,0.0016)';
+    fogCtx.fillRect(0, 0, fog.width, fog.height);
+    fogCtx.restore();
+  }
+}
+
+// ── Breath Detection (Microphone DSP, strictly no speaker audio) ─────
+function sampleBreath() {
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(timeData);
+  let sum = 0;
+  for (let i = 0; i < timeData.length; i++) sum += timeData[i] * timeData[i];
+  level = Math.sqrt(sum / timeData.length);
+  if (noiseFloor === null) { noiseFloor = level; return; }
+  if (level < noiseFloor) noiseFloor += FLOOR_DOWN * (level - noiseFloor);
+  else noiseFloor += FLOOR_UP * (level - noiseFloor);
+}
+
+function breathState() {
+  if (spaceHeld) return { on: true, strength: 1 };
+  if (!analyser || noiseFloor === null) return { on: false, strength: 0 };
+  if ((performance.now() - lastKeyAt) < KEY_GUARD_MS) return { on: false, strength: 0 };
+  if (level <= noiseFloor + BREATH_START) return { on: false, strength: 0 };
+  const s = (level - noiseFloor - BREATH_START) / (BREATH_FULL - BREATH_START);
+  return { on: true, strength: Math.max(0, Math.min(1, s)) };
+}
+
+function updateBreath() {
+  if (penDown || fistFrames >= 2) { puffLeft = 0; return; }
+  const b = breathState();
+  if (b.on && puffLeft === 0) { puffLeft = BREATH_BLOBS; puffStrength = b.strength; }
+  if (puffLeft > 0 && (frame % 2) === 0) {
+    addFogBlob(puffStrength);
+    puffLeft--;
+    if (b.on && puffLeft === 0) puffLeft = BREATH_BLOBS;
+  }
+  if (b.on) puffStrength = b.strength;
+}
+
+// ── Two-Hand L-Frame Gesture ──────────────────────────────────────────
 function isLShape(lm) {
-  return lm[8].y < lm[6].y &&
-         Math.abs(lm[4].x - lm[2].x) > 0.04 &&
-         lm[12].y > lm[10].y &&
-         lm[16].y > lm[14].y;
+  const indexExtended = lm[8].y < lm[6].y;
+  const thumbExtended = Math.abs(lm[4].x - lm[2].x) > 0.035;
+  const middleCurled  = lm[12].y > lm[10].y;
+  const ringCurled    = lm[16].y > lm[14].y;
+  const pinkyCurled   = lm[20].y > lm[18].y;
+  return indexExtended && thumbExtended && middleCurled && ringCurled && pinkyCurled;
 }
 
 function drawCaptureFrame(lm1, lm2, progress) {
-  frameCtx.clearRect(0, 0, W, H);
-  const x1=(1-lm1[8].x)*W, y1=lm1[8].y*H;
-  const x2=(1-lm2[8].x)*W, y2=lm2[8].y*H;
-  const left=Math.min(x1,x2), right=Math.max(x1,x2);
-  const top=Math.min(y1,y2), bottom=top+(right-left)*0.75;
-  const cLen=(right-left)*0.18;
-  frameCtx.strokeStyle = `rgba(255,255,255,${0.5+progress*0.5})`;
-  frameCtx.lineWidth = 2+progress*1.5; frameCtx.lineCap = 'square';
-  [[left,top+cLen,left,top,left+cLen,top],
-   [right-cLen,top,right,top,right,top+cLen],
-   [left,bottom-cLen,left,bottom,left+cLen,bottom],
-   [right-cLen,bottom,right,bottom,right,bottom-cLen]
-  ].forEach(([x1,y1,x2,y2,x3,y3]) => {
+  frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+  const x1 = sx(lm1[8].x) * DPR, y1 = sy(lm1[8].y) * DPR;
+  const x2 = sx(lm2[8].x) * DPR, y2 = sy(lm2[8].y) * DPR;
+  const left = Math.min(x1, x2), right = Math.max(x1, x2);
+  const top = Math.min(y1, y2);
+  const width = Math.max(right - left, 90 * DPR);
+  const bottom = top + width * 0.75;
+  const cLen = width * 0.18;
+
+  frameCtx.save();
+  frameCtx.strokeStyle = `rgba(56, 189, 248, ${0.4 + progress * 0.6})`;
+  frameCtx.lineWidth = (2 + progress * 2) * DPR;
+  frameCtx.lineCap = 'square';
+  [
+    [left, top + cLen, left, top, left + cLen, top],
+    [right - cLen, top, right, top, right, top + cLen],
+    [left, bottom - cLen, left, bottom, left + cLen, bottom],
+    [right - cLen, bottom, right, bottom, right, bottom - cLen]
+  ].forEach(([ax, ay, bx, by, cx, cy]) => {
     frameCtx.beginPath();
-    frameCtx.moveTo(x1,y1); frameCtx.lineTo(x2,y2); frameCtx.lineTo(x3,y3);
+    frameCtx.moveTo(ax, ay);
+    frameCtx.lineTo(bx, by);
+    frameCtx.lineTo(cx, cy);
     frameCtx.stroke();
   });
+  frameCtx.restore();
 }
 
 function startCountdown() {
+  if (countingDown) return;
   countingDown = true;
   let count = 3;
   countdownEl.textContent = count;
   countdownEl.classList.add('show');
-  statusEl.textContent = 'get ready…';
+  showStatus('Hold steady...');
   countTimer = setInterval(() => {
     count--;
     if (count > 0) {
@@ -375,179 +643,579 @@ function startCountdown() {
       countdownEl.classList.remove('show');
       countdownEl.textContent = '';
       countingDown = false;
-      doCapture();
+      frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+      savePNG();
     }
   }, 1000);
 }
 
-function doCapture() {
-  playShutterSound();
-  flashEl.style.transition = 'none';
-  flashEl.style.opacity = '0.9';
-  setTimeout(() => { flashEl.style.transition = 'opacity 0.3s'; flashEl.style.opacity = '0'; }, 80);
-  const snap = document.createElement('canvas');
-  snap.width = W; snap.height = H;
-  const sCtx = snap.getContext('2d');
-  sCtx.drawImage(cameraCanvas, 0, 0);
-  sCtx.drawImage(blurCanvas, 0, 0);
+// ── Hand Results & Gestures ───────────────────────────────────────────
+function liftPenIfDone(now) {
+  if (penDown && releasedFrames >= LIFT_FRAMES && (now - lastActiveAt) >= LIFT_MS) {
+    penDown = false;
+    strokeFresh = false;
+    trail = [];
+    easeX = easeY = brushX = brushY = null;
+  }
+}
 
-  // Minimal editorial installation watermark
-  sCtx.save();
-  sCtx.font = '300 12px Georgia, serif';
-  sCtx.fillStyle = 'rgba(255,255,255,0.45)';
-  sCtx.textAlign = 'right';
-  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  sCtx.fillText(`BREATH MIRROR · ${timeStr}`, W - 22, H - 18);
-  sCtx.restore();
+function onHands(results) {
+  const sets = results.multiHandLandmarks || [];
+  const now = performance.now();
 
-  snap.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const wrap = document.createElement('div');
-    wrap.className = 'photo-thumb';
-    const img = document.createElement('img');
-    img.src = url;
-    const btn = document.createElement('div');
-    btn.className = 'save-btn';
-    btn.textContent = '↓ save';
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const a = document.createElement('a');
-      a.href = url; a.download = `breath-mirror-${Date.now()}.png`; a.click();
-    });
-    wrap.appendChild(img); wrap.appendChild(btn);
-    photoStrip.appendChild(wrap);
-    wrap.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-    frameCtx.clearRect(0, 0, W, H);
+  // Two-hand framing detection
+  if (sets.length >= 2 && !countingDown) {
+    const isFraming = isLShape(sets[0]) && isLShape(sets[1]);
+    if (isFraming) {
+      starOn = false; penDown = false;
+      if (!holdStart) holdStart = now;
+      const elapsed = now - holdStart;
+      const progress = Math.min(elapsed / 1300, 1);
+      drawCaptureFrame(sets[0], sets[1], progress);
+      showStatus('Hold viewfinder frame steady...');
+      if (elapsed >= 1300) {
+        holdStart = null;
+        frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+        startCountdown();
+      }
+      return;
+    }
+  }
+
+  // Clear frame brackets if two-hand framing ended
+  if (holdStart && !countingDown) {
     holdStart = null;
-    statusEl.textContent = fogReady ? 'pinch to draw' : 'blow on the screen';
+    frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+  }
+
+  const lm = sets.length ? sets[0] : null;
+  if (!lm || countingDown) {
+    handSeen = false;
+    starOn = false;
+    fistFrames = 0;
+    wipeAnchor = null;
+    releasedFrames++;
+    liftPenIfDone(now);
+    return;
+  }
+  handSeen = true;
+
+  // Scale-invariant pinch ratio
+  const handSize = dist(lm[0], lm[9]) || 1;
+  const ratio = dist(lm[4], lm[8]) / handSize;
+  if (!pinch) { if (ratio < PINCH_DOWN) pinch = true; }
+  else if (ratio > PINCH_UP) pinch = false;
+
+  // Fist detection
+  const curled = (tip, mid) => dist(lm[tip], lm[0]) < dist(lm[mid], lm[0]);
+  const fistNow = curled(8, 6) && curled(12, 10) && curled(16, 14) && curled(20, 18);
+  if (fistNow && fistFrames === 0) saveFogSnapshot();
+  fistFrames = fistNow ? fistFrames + 1 : 0;
+
+  // Pinch point & sparkling star
+  if (pinch && fistFrames < 2) {
+    const p = pinchPoint(lm);
+    rawX = p.x; rawY = p.y; hasRaw = true;
+    if (!starOn) starFresh = true;
+    starOn = true;
+  } else {
+    starOn = false;
+  }
+
+  const indexExtended = dist(lm[8], lm[0]) > dist(lm[6], lm[0]);
+  const wantDraw = pinch && fistFrames < 2 && (penDown || indexExtended);
+
+  if (wantDraw) {
+    releasedFrames = 0;
+    lastActiveAt = now;
+    lastInteractionAt = now;
+    if (!penDown) {
+      saveFogSnapshot();
+      penDown = true;
+      strokeFresh = true;
+      trail = [];
+    }
+  } else {
+    releasedFrames++;
+    liftPenIfDone(now);
+  }
+
+  if (fistFrames >= 2) {
+    lastInteractionAt = now;
+    const c = palmCentre(lm);
+    const handWidth = Math.max(dist(lm[5], lm[17]), dist(lm[0], lm[9]));
+    wipeTo(c.x, c.y, WIPE_SPREAD * handWidth);
+  } else if (!fistNow) {
+    wipeAnchor = null;
+  }
+}
+
+function onFace(results) {
+  const dets = results.detections;
+  if (!dets || !dets.length) return;
+  const b = dets[0].boundingBox;
+  if (!b) return;
+  let cx, cy, bh;
+  if (typeof b.xCenter === 'number') { cx = b.xCenter; cy = b.yCenter; bh = b.height; }
+  else if (typeof b.x === 'number') { cx = b.x + b.width * 0.5; cy = b.y + b.height * 0.5; bh = b.height; }
+  else return;
+  mouthX = sx(cx);
+  mouthY = sy(cy + bh * 0.26);
+}
+
+// ── Drawing Engine ────────────────────────────────────────────────────
+function updatePen() {
+  if (!penDown || fistFrames >= 2 || !hasRaw) return;
+  if (strokeFresh) {
+    easeX = rawX; easeY = rawY;
+    brushX = rawX; brushY = rawY;
+    trail = [{ x: brushX, y: brushY }];
+    strokeFresh = false;
+    return;
+  }
+  easeX += (rawX - easeX) * EASE_RAW;
+  easeY += (rawY - easeY) * EASE_RAW;
+  brushX += (easeX - brushX) * EASE_BRUSH;
+  brushY += (easeY - brushY) * EASE_BRUSH;
+
+  const last = trail[trail.length - 1];
+  if (!last || Math.hypot(brushX - last.x, brushY - last.y) >= TREMOR * W) {
+    trail.push({ x: brushX, y: brushY });
+    if (trail.length > 8) trail.shift();
+  }
+  if (trail.length >= 2) strokePenPath();
+}
+
+function strokePenPath() {
+  const p = trail;
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = 'destination-out';
+  fogCtx.filter = 'none';
+  fogCtx.strokeStyle = 'rgba(0,0,0,1)';
+  fogCtx.lineWidth = brushRadius * DPR * 2;
+  fogCtx.lineCap = 'round';
+  fogCtx.lineJoin = 'round';
+  fogCtx.beginPath();
+  if (p.length === 2) {
+    fogCtx.moveTo(p[0].x * DPR, p[0].y * DPR);
+    fogCtx.lineTo(p[1].x * DPR, p[1].y * DPR);
+  } else {
+    fogCtx.moveTo((p[0].x + p[1].x) * 0.5 * DPR, (p[0].y + p[1].y) * 0.5 * DPR);
+    for (let i = 1; i < p.length - 1; i++) {
+      fogCtx.quadraticCurveTo(
+        p[i].x * DPR, p[i].y * DPR,
+        (p[i].x + p[i + 1].x) * 0.5 * DPR, (p[i].y + p[i + 1].y) * 0.5 * DPR
+      );
+    }
+  }
+  fogCtx.stroke();
+  fogCtx.restore();
+}
+
+function updateStar() {
+  if (!starOn || !hasRaw) return;
+  if (starX === null || starFresh) {
+    starX = rawX; starY = rawY; starFresh = false;
+    return;
+  }
+  starX += (rawX - starX) * EASE_STAR;
+  starY += (rawY - starY) * EASE_STAR;
+}
+
+function drawStar() {
+  if (!starOn || starX === null) return;
+  const x = starX * DPR, y = starY * DPR, r = 8 * DPR;
+  frostCtx.save();
+  frostCtx.globalCompositeOperation = 'source-over';
+  const glow = frostCtx.createRadialGradient(x, y, 0, x, y, r * 3.8);
+  glow.addColorStop(0, 'rgba(56, 189, 248, 0.65)');
+  glow.addColorStop(0.5, 'rgba(56, 189, 248, 0.25)');
+  glow.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  frostCtx.fillStyle = glow;
+  frostCtx.beginPath();
+  frostCtx.arc(x, y, r * 3.8, 0, Math.PI * 2);
+  frostCtx.fill();
+  frostCtx.fillStyle = 'rgba(255, 255, 255, 0.98)';
+  frostCtx.shadowColor = 'rgba(56, 189, 248, 0.9)';
+  frostCtx.shadowBlur = 10 * DPR;
+  frostCtx.beginPath();
+  const inner = r * 0.33;
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI / 4) * i - Math.PI / 2;
+    const rad = (i % 2 === 0) ? r : inner;
+    const px = x + Math.cos(a) * rad, py = y + Math.sin(a) * rad;
+    if (i === 0) frostCtx.moveTo(px, py); else frostCtx.lineTo(px, py);
+  }
+  frostCtx.closePath();
+  frostCtx.fill();
+  frostCtx.restore();
+}
+
+// ── Layer Compositing ─────────────────────────────────────────────────
+function drawLayers() {
+  const bw = cam.width, bh = cam.height;
+
+  // 1. Camera mirror
+  camCtx.save();
+  camCtx.setTransform(1, 0, 0, 1, 0, 0);
+  camCtx.globalCompositeOperation = 'source-over';
+  camCtx.filter = 'none';
+  camCtx.translate(bw, 0);
+  camCtx.scale(-1, 1);
+  camCtx.drawImage(video, 0, 0, bw, bh);
+  camCtx.restore();
+
+  // 3. Frost layer: blurred, brightened, cool mist tinted, masked by fog
+  frostCtx.save();
+  frostCtx.setTransform(1, 0, 0, 1, 0, 0);
+  frostCtx.globalCompositeOperation = 'source-over';
+  frostCtx.filter = 'blur(' + (FOG_BLUR * DPR) + 'px) brightness(' + FOG_BRIGHTNESS + ')';
+  frostCtx.translate(bw, 0);
+  frostCtx.scale(-1, 1);
+  frostCtx.drawImage(video, 0, 0, bw, bh);
+  frostCtx.restore();
+  frostCtx.filter = 'none';
+  frostCtx.fillStyle = 'rgba(' + FOG_TINT + ',' + FOG_TINT_MIX + ')';
+  frostCtx.fillRect(0, 0, bw, bh);
+  frostCtx.globalCompositeOperation = 'destination-in';
+  frostCtx.drawImage(fog, 0, 0);
+  frostCtx.globalCompositeOperation = 'source-over';
+
+  drawStar();
+}
+
+// ── MediaPipe Processing Pump ─────────────────────────────────────────
+function pump() {
+  if (busy || !hands || video.readyState < 2 || !video.videoWidth) return;
+  busy = true;
+  const gen = generation;
+  hands.send({ image: video })
+    .then(function () {
+      if ((frame % FACE_EVERY) === 0 && faceDetection) return faceDetection.send({ image: video });
+    })
+    .then(
+      function () { if (gen === generation) busy = false; },
+      function (err) { if (gen === generation) busy = false; throw err; }
+    );
+}
+
+// ── Main Render Loop ──────────────────────────────────────────────────
+function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+  frame++;
+
+  naturalEvaporation();
+  sampleBreath();
+  updateBreath();
+  pump();
+
+  if (mouthX !== null) {
+    fogX += (mouthX - fogX) * FOG_EASE;
+    fogY += (mouthY - fogY) * FOG_EASE;
+  }
+
+  updatePen();
+  updateStar();
+  if (video.readyState >= 2 && video.videoWidth) drawLayers();
+  if (readoutsOn) updateReadouts(performance.now());
+}
+
+// ── Photo Film Strip & Capture ────────────────────────────────────────
+function addPhotoToStrip(url) {
+  photoStrip.classList.add('has-photos');
+  toolEl.classList.add('shifted');
+  hintEl.classList.add('shifted');
+  const wrap = document.createElement('div');
+  wrap.className = 'photo-thumb';
+  const img = document.createElement('img');
+  img.src = url;
+  const btn = document.createElement('div');
+  btn.className = 'save-btn';
+  btn.textContent = '↓ SAVE';
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `breath-mirror-${Date.now()}.png`;
+    a.click();
+  });
+  wrap.appendChild(img);
+  wrap.appendChild(btn);
+  photoStrip.appendChild(wrap);
+  wrap.scrollIntoView({ behavior: 'smooth', inline: 'end' });
+}
+
+function savePNG() {
+  const out = document.createElement('canvas');
+  out.width = cam.width; out.height = cam.height;
+  const c = out.getContext('2d');
+  c.drawImage(cam, 0, 0);
+  c.drawImage(frost, 0, 0);
+
+  // Subtle editorial watermark
+  c.save();
+  c.font = `500 ${Math.round(13 * DPR)}px 'Space Grotesk', -apple-system, sans-serif`;
+  c.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  c.textAlign = 'right';
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  c.fillText(`BREATH MIRROR · ${timeStr}`, out.width - 24 * DPR, out.height - 20 * DPR);
+  c.restore();
+
+  out.toBlob(function (blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'breath-mirror-' + Date.now() + '.png';
+    a.click();
+
+    addPhotoToStrip(url);
+
+    flashEl.classList.remove('pop');
+    void flashEl.offsetWidth;
+    flashEl.classList.add('pop');
+    showStatus('Snapshot saved');
   }, 'image/png');
 }
 
-// ── Hands ─────────────────────────────────────────────────────────────
-const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
-
-hands.onResults(results => {
-  const all = results.multiHandLandmarks || [];
-
-  // DRAW
-  if (all.length >= 1 && !countingDown) {
-    const lm = all[0];
-    const fx = (1-lm[8].x)*W, fy = lm[8].y*H;
-    const tx = (1-lm[4].x)*W, ty = lm[4].y*H;
-
-    // Scale-invariant pinch: normalized by palm anatomy (knuckle to wrist)
-    const handScale = Math.hypot(lm[5].x - lm[0].x, lm[5].y - lm[0].y) || 0.2;
-    const pinchDist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
-    const pinching = (pinchDist / handScale) < 0.42;
-
-    cursor.style.left = fx+'px'; cursor.style.top = fy+'px'; cursor.style.opacity = '1';
-    if (pinching && fogReady) {
-      holdStart = null; frameCtx.clearRect(0,0,W,H);
-      cursor.classList.add('drawing');
-      if (!isDrawingStroke) { saveSnapshot(); isDrawingStroke = true; }
-      eraseAt(fx, fy);
-      statusEl.textContent = 'drawing…';
-      return;
-    } else {
-      cursor.classList.remove('drawing');
-      isDrawingStroke = false; resetDraw();
-    }
-  } else if (!countingDown) {
-    cursor.style.opacity = '0';
-    isDrawingStroke = false; resetDraw();
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
   }
-
-  // CAPTURE
-  if (!countingDown) {
-    const bothL = all.length === 2 && isLShape(all[0]) && isLShape(all[1]);
-    if (bothL) {
-      if (!holdStart) holdStart = Date.now();
-      const elapsed = Date.now() - holdStart;
-      drawCaptureFrame(all[0], all[1], Math.min(elapsed/HOLD_MS, 1));
-      statusEl.textContent = '📷 hold…';
-      if (elapsed >= HOLD_MS) { holdStart = null; frameCtx.clearRect(0,0,W,H); startCountdown(); }
-    } else {
-      if (holdStart) { holdStart = null; frameCtx.clearRect(0,0,W,H); }
-      if (!fogReady) statusEl.textContent = 'blow on the screen';
-      else if (all.length >= 1) statusEl.textContent = 'pinch to draw';
-    }
-  }
-});
-
-// ── Camera ────────────────────────────────────────────────────────────
-async function startCamera() {
-  try {
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' }, audio: false
-      });
-    } catch(err) {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    }
-    video.srcObject = stream; await video.play();
-    const mpCam = new Camera(video, {
-      onFrame: async () => { await hands.send({ image: video }); },
-      width: 1280, height: 720
-    });
-    mpCam.start(); resize(); render();
-    statusEl.textContent = 'blow on the screen';
-  } catch(e) { statusEl.textContent = 'camera access needed'; }
 }
 
-// ── Mic ───────────────────────────────────────────────────────────────
-async function startMic() {
-  try {
-    const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const ac = getAudioCtx();
-    if (!ac) return;
-    const src = ac.createMediaStreamSource(ms);
-    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
-    src.connect(hp);
-    const an = ac.createAnalyser(); an.fftSize = 512; hp.connect(an);
-    const buf = new Float32Array(an.frequencyBinCount);
-    let rTO = null;
-    (function tick() {
-      requestAnimationFrame(tick);
-      an.getFloatTimeDomainData(buf);
-      let s = 0; for (const v of buf) s += v*v;
-      const rms = Math.sqrt(s/buf.length);
-      if (rms > 0.014) {
-        addFog(rms);
-        breathRing.classList.add('active');
-        clearTimeout(rTO); rTO = setTimeout(() => breathRing.classList.remove('active'), 300);
-      }
-    })();
-  } catch(e) {}
+// ── UI Helpers ────────────────────────────────────────────────────────
+function hud(on) {
+  topBar.classList.toggle('on', on);
+  toolEl.classList.toggle('on', on);
+  if (!on) {
+    hintEl.classList.add('gone');
+    statusEl.classList.add('gone');
+    clearTimeout(hintTimer);
+    readoutsOn = false;
+    readoutsEl.classList.remove('on');
+    photoStrip.classList.remove('has-photos');
+    toolEl.classList.remove('shifted');
+    hintEl.classList.remove('shifted');
+  }
 }
 
-// ── Buttons & Keyboard ────────────────────────────────────────────────
-document.getElementById('undoBtn').addEventListener('click', undo);
-document.getElementById('clearBtn').addEventListener('click', () => {
-  maskCtx.clearRect(0,0,W,H);
-  undoStack = []; fogReady = false; resetDraw();
-  statusEl.textContent = 'blow on the screen';
+let statusTimer = null;
+function showStatus(text) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle('gone', !text);
+  clearTimeout(statusTimer);
+  if (text) statusTimer = setTimeout(function () { statusEl.classList.add('gone'); }, 4000);
+}
+
+function fogPercent() {
+  let sum = 0, n = 0;
+  for (let gy = 1; gy <= 3; gy++) {
+    for (let gx = 1; gx <= 3; gx++) {
+      const x = Math.min(fog.width - 1, Math.round(fog.width * gx / 4));
+      const y = Math.min(fog.height - 1, Math.round(fog.height * gy / 4));
+      sum += fogCtx.getImageData(x, y, 1, 1).data[3];
+      n++;
+    }
+  }
+  return Math.round((sum / n / 255) * 100);
+}
+
+function handWord() {
+  if (!handSeen) return 'none';
+  if (fistFrames >= 2) return 'fist · wiping';
+  if (penDown) return 'pinch · drawing';
+  if (pinch) return 'pinch';
+  return 'open';
+}
+
+function updateReadouts(now) {
+  fpsFrames++;
+  if (fpsAt === 0) { fpsAt = now; return; }
+  if (now - fpsAt >= 500) {
+    fps = Math.round((fpsFrames * 1000) / (now - fpsAt));
+    fpsFrames = 0; fpsAt = now;
+  }
+  if (readoutsAt !== 0 && now - readoutsAt < 500) return;
+  readoutsAt = now;
+  const pad = s => (s + '        ').slice(0, 8);
+  readoutsEl.textContent =
+    pad('fps')   + fps + '\n' +
+    pad('level') + level.toFixed(4) + '\n' +
+    pad('floor') + (noiseFloor === null ? '—' : noiseFloor.toFixed(4)) + '\n' +
+    pad('fog')   + fogPercent() + '%\n' +
+    pad('hand')  + handWord() + '\n' +
+    pad('undo')  + undoStack.length + ' frames\n' +
+    pad('brush') + brushRadius + 'px';
+}
+
+function showMsg(text, isError) {
+  msgEl.textContent = text;
+  msgEl.classList.toggle('err', !!isError);
+  msgEl.classList.toggle('info', !isError);
+}
+
+function showCameraError(err) {
+  const name = err && err.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
+    showMsg('Camera access was denied. Please allow camera and microphone permissions, then click start.', true);
+  } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    showMsg('No camera device detected.', true);
+  } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+    showMsg('Camera is currently in use by another application.', true);
+  } else {
+    showMsg('Camera error: ' + ((err && err.message) || err), true);
+  }
+}
+
+function openMic(stream) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  if (!audioCtx) audioCtx = new AC();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (micSource) { micSource.disconnect(); micSource = null; }
+  micSource = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  micSource.connect(analyser); // Strictly no destination connection (no speaker squeaks)
+  timeData = new Float32Array(analyser.fftSize);
+  noiseFloor = null;
+}
+
+// ── Lifecycle: Start & Stop ───────────────────────────────────────────
+async function start() {
+  showMsg('', false);
+
+  if (location.protocol === 'file:' || !window.isSecureContext) {
+    showMsg('getUserMedia requires a secure context (HTTPS or localhost). Run a local web server (e.g. python -m http.server 8089) and open http://localhost:8089/breath-mirror.html', true);
+    return;
+  }
+
+  const wantCam = navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+    audio: false
+  });
+  const wantMic = navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+  });
+  const got = await Promise.allSettled([wantCam, wantMic]);
+
+  if (got[0].status === 'rejected') { showCameraError(got[0].reason); return; }
+  videoStream = got[0].value;
+  video.srcObject = videoStream;
+  await video.play();
+
+  if (got[1].status === 'rejected') {
+    analyser = null; timeData = null; noiseFloor = null;
+    showStatus('Microphone denied — hold SPACE to fog the mirror.');
+  } else {
+    micStream = got[1].value;
+    openMic(micStream);
+  }
+
+  if (!hands) {
+    hands = new Hands({ locateFile: function (f) { return HANDS_BASE + f; } });
+    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5 });
+    hands.onResults(onHands);
+  }
+  if (!faceDetection) {
+    faceDetection = new FaceDetection({ locateFile: function (f) { return FACE_BASE + f; } });
+    faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
+    faceDetection.onResults(onFace);
+  }
+
+  layout(false);
+  fillFog();
+  undoStack = [];
+  mouthX = mouthY = null;
+  fogX = W * 0.5; fogY = H * 0.45;
+  pinch = false; fistFrames = 0; releasedFrames = 0;
+  penDown = false; strokeFresh = false; hasRaw = false;
+  easeX = easeY = brushX = brushY = null; trail = [];
+  starOn = false; starFresh = false; starX = starY = null;
+  wipeAnchor = null; puffLeft = 0; frame = 0;
+  generation++; busy = false;
+
+  startScr.classList.add('off');
+  hud(true);
+  hintEl.classList.remove('gone');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(function () { hintEl.classList.add('gone'); }, 9000);
+  running = true;
+  requestAnimationFrame(loop);
+}
+
+function stop() {
+  running = false;
+  generation++;
+  if (videoStream) { for (const t of videoStream.getTracks()) t.stop(); videoStream = null; }
+  if (micStream) { for (const t of micStream.getTracks()) t.stop(); micStream = null; }
+  if (micSource) { micSource.disconnect(); micSource = null; }
+  analyser = null; timeData = null; noiseFloor = null;
+  video.srcObject = null;
+  spaceHeld = false; puffLeft = 0;
+  penDown = false; starOn = false; handSeen = false; fistFrames = 0;
+  frameCtx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+  hud(false);
+  startScr.classList.remove('off');
+  showMsg('', false);
+}
+
+// ── Event Handlers ────────────────────────────────────────────────────
+startBtn.addEventListener('click', function () {
+  start().catch(function (err) {
+    showMsg('Could not start: ' + ((err && err.message) || err), true);
+    throw err;
+  });
 });
 
-window.addEventListener('keydown', e => {
-  if (e.code === 'KeyF') {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
-    else document.exitFullscreen().catch(()=>{});
-  } else if (e.code === 'Space' && !e.repeat) {
-    getAudioCtx();
-    addFog(0.5);
-    breathRing.classList.add('active');
-    setTimeout(() => breathRing.classList.remove('active'), 300);
+undoBtn.addEventListener('click', undo);
+clearBtn.addEventListener('click', function () {
+  saveFogSnapshot();
+  fillFog();
+  showStatus('Mirror reset');
+});
+shotBtn.addEventListener('click', savePNG);
+fsBtn.addEventListener('click', toggleFullscreen);
+
+brushInput.addEventListener('input', function () {
+  brushRadius = parseInt(brushInput.value, 10) || 15;
+});
+brushRadius = parseInt(brushInput.value, 10) || 15;
+
+window.addEventListener('keydown', function (e) {
+  lastKeyAt = performance.now();
+  lastInteractionAt = performance.now();
+  if (!running) return;
+
+  if (e.code === 'Space') {
+    e.preventDefault(); spaceHeld = true;
+  } else if (e.code === 'KeyZ' || (e.code === 'KeyZ' && (e.ctrlKey || e.metaKey))) {
+    e.preventDefault(); undo();
+  } else if (e.code === 'KeyC') {
+    saveFogSnapshot(); puffLeft = 0; fillFog(); showStatus('Mirror reset');
+  } else if (e.code === 'KeyS') {
+    e.preventDefault(); savePNG();
+  } else if (e.code === 'KeyF') {
+    e.preventDefault(); toggleFullscreen();
+  } else if (e.code === 'KeyD') {
+    readoutsOn = !readoutsOn;
+    readoutsEl.classList.toggle('on', readoutsOn);
+    if (readoutsOn) { fpsAt = 0; readoutsAt = 0; }
+  } else if (e.code === 'Escape') {
+    stop();
   }
 });
 
-// Resume audio on first interaction
-['pointerdown', 'keydown', 'touchstart'].forEach(ev => {
-  window.addEventListener(ev, () => { getAudioCtx(); }, { once: true });
+window.addEventListener('keyup', function (e) {
+  if (e.code === 'Space') spaceHeld = false;
 });
+window.addEventListener('blur', function () { spaceHeld = false; });
+window.addEventListener('resize', function () { layout(running); });
 
-startCamera(); startMic();
+layout(false);
 </script>
 </body>
 </html>

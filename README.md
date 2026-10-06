@@ -3,27 +3,29 @@
 > *An interactive digital mirror installation where breath fogs the glass and touch wipes it clean.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Pure Web Tech](https://img.shields.io/badge/Technology-HTML5%20%7C%20Canvas%20%7C%20Web%20Audio%20%7C%20MediaPipe-black.svg)]()
+[![Pure Web Tech](https://img.shields.io/badge/Technology-HTML5%20%7C%20Canvas%20%7C%20MediaPipe-black.svg)]()
 
 ---
 
 ## ✦ The Experience
 
-**Breath Mirror** is a minimalist, sensory interactive art installation designed for browser environments. Standing in front of the screen, the display functions as a dark, elegant obsidian mirror reflecting your likeness. 
+**Breath Mirror** is a sensory interactive art installation designed for modern browser environments. Standing before your camera, the screen acts as a dark, slate-obsidian mirror reflecting your presence. 
 
-When you exhale toward your microphone, warm condensation billows across the glass surface. Pinching your fingers allows you to draw, etch messages, or wipe the moisture away to reveal your reflection beneath—accompanied by authentic wet-glass friction acoustics. If left untouched, the steam gradually and naturally evaporates from the outer perimeters inward, mimicking true physical thermodynamics.
+When you exhale toward your microphone, warm condensation billows dynamically from your mouth across the glass. Pinching your thumb and index finger lets you etch messages or draw lines through the steam, while wiping with a closed fist clears broad patches of condensation back to clear glass. 
 
 ---
 
 ## ✦ Key Features
 
-- **💨 Acoustic Breath Detection**: Real-time microphone audio DSP with bandpass and high-pass filtering (~800Hz) calibrated to isolate air exhalations from ambient room noise.
-- **🤏 Scale-Invariant Pinch Tracking**: Powered by MediaPipe Hands. Pinch tracking is dynamically normalized against hand anatomical landmarks (wrist-to-knuckle ratio), delivering consistent, responsive writing whether standing 1 foot or 6 feet from the camera.
-- **🧼 Tactile Wet-Glass Acoustics**: Procedurally synthesized friction and squeak audio generated in real-time via the Web Audio API without requiring any external audio files. Velocity modulates tone pitch and volume.
-- **⏳ Natural Thermodynamic Evaporation**: Organic condensation clearing that gently evaporates steam if no new breath is introduced for 10 seconds.
-- **📸 Two-Hand Framing Capture ($L$-Frame)**: Make an $L$-shape with both hands to activate a stabilized viewfinder bracket. Holding the frame for 1.5 seconds initiates a 3-second countdown, exposure flash, analog shutter sound, and saves the reflection to an exhibition contact sheet.
-- **🏷️ Editorial Watermark Export**: Downloaded snapshots are stamped with a subtle editorial typography watermark (`BREATH MIRROR · [Time]`).
-- **⚡ Lightweight & Zero Build Step**: Runs directly in any modern browser without npm packages, bundlers, or frameworks.
+- **💨 Dynamic Mouth-Tracking Condensation**: Integrates MediaPipe Face Detection to originate condensation puffs directly from your mouth, dispersing and falling naturally across the glass surface.
+- **🤏 Precision Pinch & Star Cursor**: Powered by MediaPipe Hands. Smooth two-pass easing and tremor filtration with an arctic ice-star cursor for drawing or writing on the fog.
+- **👊 Fist Wipe Clearing**: Ball your hand into a fist to wipe away large areas of moisture like a physical sponge or palm.
+- **📸 Two-Hand $L$-Frame Gesture Capture**: Frame your reflection by making an $L$-shape with both hands. Holding the framing viewfinder triggers a 3-second countdown, exposure flash, and saves the snapshot.
+- **🎞️ Gallery Film Strip & Watermark**: Captures are automatically cataloged in a live bottom photo reel for quick downloading, stamped with a subtle editorial watermark (`BREATH MIRROR · [Time]`).
+- **↩️ Stroke Undo & Mirror Reset**: Revert drawing strokes with <kbd>Z</kbd> or the top-bar undo button, or instantly reset condensation with <kbd>C</kbd>.
+- **⏳ Natural Thermodynamic Evaporation**: Condensation gently thins over time when left untouched.
+- **🔇 Silent Ambient Focus**: All procedural sound effects have been removed to maintain a quiet, meditative installation experience.
+- **⚡ Lightweight & Zero Build Step**: Runs directly in the browser via clean HTML5, Canvas, and CDN-hosted WebAssembly models.
 
 ---
 
@@ -31,12 +33,16 @@ When you exhale toward your microphone, warm condensation billows across the gla
 
 | Interaction | Action | Gesture / Key |
 | :--- | :--- | :--- |
-| **Breathe** | Fogs the mirror with condensation | Blow into microphone or press <kbd>Space</kbd> |
-| **Pinch to Write** | Clears steam to write or draw | Pinch index finger & thumb together |
-| **Capture Photo** | Activates viewfinder and shutter | Form $L$-shapes with both hands (or hold) |
-| **Undo Stroke** | Reverts the last wiped stroke | Click `↩ undo` |
-| **Clear Mirror** | Instantly wipes all condensation | Click `✕ clear` |
-| **Toggle Fullscreen** | Distraction-free gallery presentation | Press <kbd>F</kbd> |
+| **Breathe** | Fogs mirror with steam | Exhale into microphone or hold <kbd>Space</kbd> |
+| **Pinch to Draw** | Etches clean glass through fog | Pinch index finger & thumb together |
+| **Fist to Wipe** | Clears steam with palm | Form a closed fist and wipe across mirror |
+| **Frame Capture** | Triggers photo countdown | Form $L$-shapes with both hands (or click shutter button) |
+| **Undo Stroke** | Reverts last drawing or wipe | Press <kbd>Z</kbd> or click `↩` button |
+| **Reset Mirror** | Re-fogs the entire surface | Press <kbd>C</kbd> or click `✕` button |
+| **Save Photo** | Saves reflection snapshot | Press <kbd>S</kbd> or click camera button |
+| **Fullscreen** | Toggles distraction-free view | Press <kbd>F</kbd> or click `⛶` button |
+| **Diagnostics** | Toggles live telemetry HUD | Press <kbd>D</kbd> |
+| **Exit** | Returns to start screen | Press <kbd>Esc</kbd> |
 
 ---
 
@@ -51,33 +57,34 @@ cd breath-mirror
 ```
 
 ### 2. Start a local server
-Using Python (built into macOS, Linux, and Windows):
+Using Python:
 ```bash
 python -m http.server 8089
 ```
-*(Or use any static web server such as `npx serve`, Live Server in VS Code, etc.)*
+*(Or use any static web server such as `npx serve`, Live Server, etc.)*
 
 ### 3. Open in your browser
 Navigate to:
 ```
 http://localhost:8089
 ```
-When prompted by the browser, grant access to your **Camera** and **Microphone**.
+When prompted, allow **Camera** and **Microphone** access.
 
 ---
 
-## ✦ Architecture & Technology
+## ✦ Architecture
 
 ```
 breath-mirror/
-├── index.html          # Lightweight entry point with instant redirect
-├── breath-mirror.html  # Complete single-file installation engine
-└── README.md           # Documentation & installation guide
+├── index.html          # Entry point with instant redirect
+├── breath-mirror.html  # Unified single-file installation engine
+└── README.md           # Documentation & interaction guide
 ```
 
-- **Rendering Layer**: Dual-buffered HTML5 Canvas composited with optical diffusion filters (`blur`, `brightness`) and `destination-out` feathering for realistic droplet displacement.
-- **Computer Vision**: Google MediaPipe Hands running client-side via WebAssembly/CDN.
-- **Audio DSP**: Web Audio API AudioContext utilizing `BiquadFilterNode`, `AnalyserNode`, and dynamic frequency ramp oscillators.
+- **Layer 1 (`#cam`)**: Real-time mirrored camera feed.
+- **Layer 2 (`fog`)**: Offscreen density buffer storing condensation levels (`source-over` puff additions, `destination-out` finger/palm erasures).
+- **Layer 3 (`#frost`)**: Blurred and brightened camera feed with cool glass tint, masked against the fog buffer via `destination-in`.
+- **Layer 4 (`#frame`)**: Viewfinder bracket overlay rendered during two-hand $L$-frame gesture holds.
 
 ---
 
