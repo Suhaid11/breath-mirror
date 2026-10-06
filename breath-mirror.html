@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Mrs+Saint+Delafield&display=swap" rel="stylesheet">
 <title>Breath Mirror</title>
 <style>
   :root {
@@ -22,7 +21,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   html, body { height: 100%; background: var(--bg); overflow: hidden; }
-  body { cursor: none; font: 16px/1.7 'Space Grotesk', -apple-system, system-ui, sans-serif; }
+  body { cursor: none; font: 16px/1.7 -apple-system, system-ui, sans-serif; }
 
   /* layer 1 = camera, layer 3 = frost. layer 2 (the fog) lives offscreen. layer 4 = frame brackets */
   video#video { position: fixed; inset: 0; width: 100%; height: 100%;
@@ -36,7 +35,7 @@
   #hint {
     position: fixed; left: 0; right: 0; bottom: 62px; z-index: 25;
     text-align: center;
-    font: 14px/1.6 'Space Grotesk', -apple-system, system-ui, sans-serif;
+    font: 14px/1.6 -apple-system, system-ui, sans-serif;
     color: var(--text-dim);
     letter-spacing: .02em;
     pointer-events: none;
@@ -51,7 +50,7 @@
   #status {
     position: fixed; top: 0; left: 0; right: 0; z-index: 26;
     padding: 16px; text-align: center;
-    font: 13.5px/1.6 'Space Grotesk', -apple-system, system-ui, sans-serif;
+    font: 13.5px/1.6 -apple-system, system-ui, sans-serif;
     color: rgba(255,255,255,.8);
     pointer-events: none;
     transition: opacity .8s ease;
@@ -182,16 +181,15 @@
     color: #fff; font-weight: 700; letter-spacing: -.03em;
   }
   #start .sig {
-    margin-top: 10px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13px; font-weight: 500;
-    letter-spacing: 0.22em; text-transform: uppercase;
+    margin-top: 8px;
+    font-family: "Mrs Saint Delafield", "Snell Roundhand", "Brush Script MT", cursive;
+    font-size: clamp(32px, 6vw, 44px); line-height: 1.25;
     color: var(--accent);
   }
   #start p { margin-top: 18px; max-width: 440px; font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,.7); }
   #startBtn {
     margin-top: 24px; align-self: flex-start;
-    font: 600 14px 'Space Grotesk', -apple-system, system-ui, sans-serif;
+    font: 600 14px -apple-system, system-ui, sans-serif;
     letter-spacing: 0.08em; text-transform: uppercase;
     color: #0b0f14; background: var(--accent);
     border: 0; border-radius: 4px; padding: 13px 32px;
@@ -280,7 +278,7 @@
 <!-- Start Overlay -->
 <div id="start">
   <h1>Breath Mirror</h1>
-  <div class="sig">BY SUHAID</div>
+  <div class="sig">by Suhaid</div>
   <p>An interactive digital mirror. Exhale toward the screen to condense steam; pinch and wipe to etch clean glass. All processing runs privately in your browser.</p>
   <button id="startBtn">Start Mirror</button>
   <p id="msg"></p>
@@ -955,7 +953,7 @@ function savePNG() {
 
   // Subtle editorial watermark
   c.save();
-  c.font = `500 ${Math.round(13 * DPR)}px 'Space Grotesk', -apple-system, sans-serif`;
+  c.font = `500 ${Math.round(13 * DPR)}px -apple-system, system-ui, sans-serif`;
   c.fillStyle = 'rgba(255, 255, 255, 0.45)';
   c.textAlign = 'right';
   const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
